@@ -1,0 +1,1348 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitLens — محلّل مستودعات GitHub</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg-void:    #080c10;
+    --bg-surface: #0d1117;
+    --bg-raised:  #161b22;
+    --bg-hover:   #1c2128;
+    --border:     #21262d;
+    --border-lit: #388bfd;
+    --text-prime: #e6edf3;
+    --text-dim:   #7d8590;
+    --text-ghost: #30363d;
+    --accent:     #2f81f7;
+    --accent-lo:  #1f4c8f22;
+    --green:      #3fb950;
+    --green-lo:   #3fb95022;
+    --red:        #f85149;
+    --red-lo:     #f8514922;
+    --yellow:     #d29922;
+    --yellow-lo:  #d2992222;
+    --purple:     #a371f7;
+    --radius:     10px;
+    --font-body:  'IBM Plex Sans Arabic', sans-serif;
+    --font-mono:  'JetBrains Mono', monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--font-body);
+    background: var(--bg-void);
+    color: var(--text-prime);
+    min-height: 100vh;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* ── Grid background ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(var(--text-ghost) 1px, transparent 1px),
+      linear-gradient(90deg, var(--text-ghost) 1px, transparent 1px);
+    background-size: 40px 40px;
+    opacity: .18;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Glow orbs ── */
+  .orb {
+    position: fixed; border-radius: 50%;
+    filter: blur(120px); pointer-events: none; z-index: 0; opacity: .35;
+  }
+  .orb-1 { width: 600px; height: 600px; background: #1f4c8f; top: -200px; right: -100px; }
+  .orb-2 { width: 400px; height: 400px; background: #0d3a2a; bottom: -100px; left: -100px; }
+
+  /* ── Layout ── */
+  .shell {
+    position: relative; z-index: 1;
+    max-width: 960px; margin: 0 auto;
+    padding: 0 24px 80px;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 28px 0 32px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 48px;
+  }
+  .logo {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 1.25rem; font-weight: 700; letter-spacing: -.3px;
+  }
+  .logo svg { width: 28px; height: 28px; }
+  .logo-dot { color: var(--accent); }
+  .header-badge {
+    font-size: .7rem; font-family: var(--font-mono);
+    background: var(--accent-lo); color: var(--accent);
+    border: 1px solid #388bfd44; border-radius: 4px;
+    padding: 2px 8px; letter-spacing: .05em;
+  }
+
+  /* ── Section titles ── */
+  .section-label {
+    font-size: .72rem; font-family: var(--font-mono);
+    color: var(--text-dim); letter-spacing: .12em;
+    text-transform: uppercase; margin-bottom: 16px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .section-label::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px;
+    margin-bottom: 20px;
+    transition: border-color .2s;
+  }
+  .card:hover { border-color: #30363d; }
+  .card-title {
+    font-size: 1rem; font-weight: 600; margin-bottom: 6px;
+  }
+  .card-sub {
+    font-size: .85rem; color: var(--text-dim); margin-bottom: 24px;
+    line-height: 1.7;
+  }
+
+  /* ── Inputs ── */
+  .input-row {
+    display: flex; gap: 10px; align-items: stretch;
+  }
+  input[type="text"], input[type="password"] {
+    flex: 1;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    color: var(--text-prime);
+    font-family: var(--font-mono);
+    font-size: .85rem;
+    padding: 11px 16px;
+    outline: none;
+    transition: border-color .2s, box-shadow .2s;
+    direction: ltr;
+  }
+  input:focus {
+    border-color: var(--border-lit);
+    box-shadow: 0 0 0 3px #388bfd18;
+  }
+  input::placeholder { color: var(--text-ghost); }
+
+  /* ── Buttons ── */
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-family: var(--font-body); font-size: .875rem; font-weight: 500;
+    border: none; border-radius: 7px; cursor: pointer;
+    padding: 11px 20px; transition: opacity .15s, transform .1s;
+    white-space: nowrap;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn-primary {
+    background: var(--accent); color: #fff;
+  }
+  .btn-primary:hover { opacity: .88; }
+  .btn-ghost {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    color: var(--text-prime);
+  }
+  .btn-ghost:hover { background: var(--bg-hover); }
+  .btn-green {
+    background: var(--green); color: #000; font-weight: 600;
+  }
+  .btn-green:hover { opacity: .88; }
+  .btn-danger {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--red); font-size: .8rem; padding: 6px 12px;
+  }
+  .btn-danger:hover { background: var(--red-lo); border-color: var(--red); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  /* ── Token status ── */
+  .token-status {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px;
+    border-radius: 7px;
+    font-size: .85rem;
+    margin-top: 14px;
+  }
+  .token-status.ok { background: var(--green-lo); color: var(--green); }
+  .token-status.err { background: var(--red-lo); color: var(--red); }
+  .status-dot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  }
+  .status-dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-dot.red   { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex; gap: 4px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 9px; padding: 4px;
+    margin-bottom: 24px;
+  }
+  .tab {
+    flex: 1; text-align: center; padding: 9px 16px;
+    font-size: .85rem; font-weight: 500;
+    border-radius: 6px; cursor: pointer;
+    transition: background .15s, color .15s;
+    color: var(--text-dim); user-select: none;
+  }
+  .tab.active {
+    background: var(--bg-surface);
+    color: var(--text-prime);
+    box-shadow: 0 1px 3px #0006;
+  }
+
+  /* ── Repo list ── */
+  .repo-grid {
+    display: grid; gap: 10px;
+  }
+  .repo-item {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .repo-item:hover {
+    border-color: var(--accent);
+    background: var(--bg-hover);
+  }
+  .repo-item.selected {
+    border-color: var(--accent);
+    background: var(--accent-lo);
+  }
+  .repo-name {
+    font-family: var(--font-mono); font-size: .9rem; font-weight: 500;
+  }
+  .repo-meta {
+    display: flex; gap: 14px; align-items: center;
+    font-size: .76rem; color: var(--text-dim);
+  }
+  .lang-dot {
+    width: 9px; height: 9px; border-radius: 50%; display: inline-block;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: .7rem; padding: 2px 8px; border-radius: 4px;
+    font-family: var(--font-mono);
+  }
+  .chip-blue { background: var(--accent-lo); color: var(--accent); }
+  .chip-green { background: var(--green-lo); color: var(--green); }
+  .chip-yellow { background: var(--yellow-lo); color: var(--yellow); }
+  .chip-red { background: var(--red-lo); color: var(--red); }
+
+  /* ── Analysis results ── */
+  .analysis-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    flex-wrap: wrap; gap: 16px;
+    margin-bottom: 28px;
+  }
+  .analysis-title {
+    font-size: 1.2rem; font-weight: 700; font-family: var(--font-mono);
+    display: flex; align-items: center; gap: 10px;
+    direction: ltr;
+  }
+  .stats-row {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px; margin-bottom: 24px;
+  }
+  .stat-box {
+    background: var(--bg-raised); border: 1px solid var(--border);
+    border-radius: 8px; padding: 16px;
+    text-align: center;
+  }
+  .stat-num {
+    font-size: 1.5rem; font-weight: 700; font-family: var(--font-mono);
+    color: var(--accent); line-height: 1;
+  }
+  .stat-label { font-size: .75rem; color: var(--text-dim); margin-top: 4px; }
+
+  /* ── Lang bars ── */
+  .lang-bar-wrap { margin-bottom: 24px; }
+  .lang-bar-track {
+    height: 8px; border-radius: 4px;
+    background: var(--bg-raised);
+    overflow: hidden; display: flex;
+    margin-bottom: 10px;
+  }
+  .lang-segment { height: 100%; transition: width .6s cubic-bezier(.4,0,.2,1); }
+  .lang-list { display: flex; flex-wrap: wrap; gap: 8px; }
+  .lang-entry {
+    display: flex; align-items: center; gap: 6px;
+    font-size: .78rem; color: var(--text-dim);
+  }
+
+  /* ── File tree ── */
+  .file-tree {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    max-height: 360px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: .8rem;
+  }
+  .file-tree::-webkit-scrollbar { width: 6px; }
+  .file-tree::-webkit-scrollbar-track { background: var(--bg-raised); }
+  .file-tree::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .tree-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--text-ghost);
+    transition: background .1s;
+    cursor: default;
+  }
+  .tree-row:hover { background: var(--bg-hover); }
+  .tree-row.dir { color: var(--accent); }
+  .tree-row.code { color: var(--green); }
+  .tree-row.asset { color: var(--text-dim); }
+
+  /* ── Traffic ── */
+  .traffic-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  }
+  .traffic-box {
+    background: var(--bg-raised); border: 1px solid var(--border);
+    border-radius: 8px; padding: 18px;
+  }
+  .traffic-big {
+    font-size: 2rem; font-weight: 700; font-family: var(--font-mono);
+    line-height: 1;
+  }
+  .traffic-sub { font-size: .75rem; color: var(--text-dim); margin-top: 4px; }
+
+  /* ── Download section ── */
+  .download-options {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    margin-bottom: 20px;
+  }
+  .dl-option {
+    background: var(--bg-raised); border: 1px solid var(--border);
+    border-radius: 8px; padding: 16px; cursor: pointer;
+    transition: border-color .15s;
+    display: flex; align-items: flex-start; gap: 12px;
+  }
+  .dl-option:hover { border-color: var(--accent); }
+  .dl-option.selected { border-color: var(--accent); background: var(--accent-lo); }
+  .dl-option input[type="radio"] { margin-top: 3px; accent-color: var(--accent); }
+  .dl-option-title { font-size: .9rem; font-weight: 600; margin-bottom: 3px; }
+  .dl-option-desc { font-size: .78rem; color: var(--text-dim); line-height: 1.5; }
+  .exclusion-list {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px;
+  }
+  .excl-tag {
+    font-family: var(--font-mono); font-size: .72rem;
+    background: var(--red-lo); color: var(--red);
+    border: 1px solid #f8514933;
+    border-radius: 4px; padding: 2px 8px;
+  }
+
+  /* ── Progress ── */
+  .progress-bar {
+    height: 4px; background: var(--bg-raised);
+    border-radius: 2px; overflow: hidden; margin: 12px 0;
+  }
+  .progress-fill {
+    height: 100%; background: var(--accent);
+    border-radius: 2px;
+    transition: width .3s ease;
+    width: 0%;
+  }
+  .progress-fill.indeterminate {
+    width: 40% !important;
+    animation: slide 1.2s infinite ease-in-out;
+  }
+  @keyframes slide {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(350%); }
+  }
+
+  /* ── Toast ── */
+  #toast-container {
+    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+    z-index: 999; display: flex; flex-direction: column; gap: 8px;
+    pointer-events: none; align-items: center;
+  }
+  .toast {
+    background: var(--bg-raised); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 20px;
+    font-size: .85rem; color: var(--text-prime);
+    box-shadow: 0 8px 32px #0008;
+    animation: toastIn .25s ease, toastOut .3s ease 2.5s forwards;
+    pointer-events: auto;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .toast.success { border-color: var(--green); }
+  .toast.error   { border-color: var(--red); }
+  @keyframes toastIn  { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+  @keyframes toastOut { from { opacity:1; } to { opacity:0; pointer-events:none; } }
+
+  /* ── Loading spinner ── */
+  .spin {
+    width: 18px; height: 18px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin .7s linear infinite; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Alert boxes ── */
+  .alert {
+    border-radius: 8px; padding: 14px 18px;
+    font-size: .85rem; line-height: 1.6; margin-bottom: 16px;
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .alert-blue { background: var(--accent-lo); border: 1px solid #388bfd44; color: var(--text-prime); }
+  .alert-yellow { background: var(--yellow-lo); border: 1px solid #d2992244; color: var(--text-prime); }
+  .alert-icon { flex-shrink: 0; font-size: 1rem; }
+
+  /* ── Scopes doc ── */
+  .scope-table { width: 100%; border-collapse: collapse; font-size: .83rem; }
+  .scope-table th, .scope-table td { padding: 10px 14px; text-align: right; border-bottom: 1px solid var(--border); }
+  .scope-table th { color: var(--text-dim); font-weight: 500; background: var(--bg-raised); }
+  .scope-table tr:last-child td { border-bottom: none; }
+  .scope-name { font-family: var(--font-mono); color: var(--accent); font-size: .82rem; direction: ltr; }
+
+  /* ── Divider ── */
+  .divider { height: 1px; background: var(--border); margin: 32px 0; }
+
+  /* ── Misc ── */
+  .hidden { display: none !important; }
+  .text-dim { color: var(--text-dim); }
+  .text-accent { color: var(--accent); }
+  .text-green { color: var(--green); }
+  .text-red { color: var(--red); }
+  .mt-16 { margin-top: 16px; }
+  .mb-8  { margin-bottom: 8px; }
+  .flex { display: flex; }
+  .items-center { align-items: center; }
+  .gap-8 { gap: 8px; }
+  .gap-12 { gap: 12px; }
+  .w-full { width: 100%; }
+  .ltr { direction: ltr; }
+
+  @media (max-width: 640px) {
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+    .traffic-grid { grid-template-columns: 1fr; }
+    .download-options { grid-template-columns: 1fr; }
+    .input-row { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+<div id="toast-container"></div>
+
+<div class="shell">
+
+  <!-- ══════════ HEADER ══════════ -->
+  <header>
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+        <path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482
+          0-.237-.008-.866-.013-1.7-2.782.604-3.369-1.34-3.369-1.34-.454-1.157-1.11-1.464-1.11-1.464
+          -.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088
+          2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943
+          0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647
+          0 0 .84-.269 2.75 1.025A9.578 9.578 0 0 1 12 6.836a9.59 9.59 0 0 1 2.504.337
+          c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.202 2.394.1 2.647
+          .64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935
+          .359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743
+          0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12
+          22 6.477 17.523 2 12 2Z"/>
+      </svg>
+      Git<span class="logo-dot">Lens</span>
+    </div>
+    <span class="header-badge">v2.0 — محلّل ذكي</span>
+  </header>
+
+  <!-- ══════════ SCOPES GUIDE ══════════ -->
+  <div class="section-label">دليل الصلاحيات (Scopes)</div>
+  <div class="card" style="margin-bottom:32px;">
+    <div class="card-title">الصلاحيات الصحيحة للـ Personal Access Token</div>
+    <div class="card-sub">اختر بدقة — لا تمنح أكثر مما يحتاجه التطبيق</div>
+
+    <div class="alert alert-blue mb-8">
+      <span class="alert-icon">ℹ️</span>
+      <div>
+        <strong>Token الكلاسيكي (Classic)</strong> — اذهب إلى
+        <span class="ltr" style="font-family:var(--font-mono);font-size:.8rem;">
+          Settings → Developer settings → Personal access tokens → Tokens (classic)
+        </span>
+        ثم اختر الصلاحيات التالية:
+      </div>
+    </div>
+
+    <table class="scope-table" style="margin-bottom:20px;">
+      <thead>
+        <tr>
+          <th>الـ Scope</th>
+          <th>لماذا؟</th>
+          <th>مطلوب</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="scope-name">repo</span> (كامل)</td>
+          <td>قراءة المستودعات الخاصة (Private repos) بالكامل — الكود والملفات والـ branches</td>
+          <td><span class="chip chip-green">✓ نعم</span></td>
+        </tr>
+        <tr>
+          <td><span class="scope-name">public_repo</span></td>
+          <td>قراءة المستودعات العامة فقط — إذا أردت أخف صلاحية</td>
+          <td><span class="chip chip-yellow">اختياري</span></td>
+        </tr>
+        <tr>
+          <td><span class="scope-name">read:org</span></td>
+          <td>معرفة المنظمات التي ينتمي إليها المستخدم وقراءة مستودعاتها</td>
+          <td><span class="chip chip-yellow">اختياري</span></td>
+        </tr>
+        <tr>
+          <td><span class="scope-name">repo:status</span></td>
+          <td>قراءة حالة الـ commits — مضمّن في repo</td>
+          <td><span class="chip chip-blue">مضمّن</span></td>
+        </tr>
+        <tr>
+          <td style="color:var(--red);"><span class="scope-name">write:repo_hook</span></td>
+          <td style="color:var(--text-dim);">تعديل — لا تحتاجه أبداً</td>
+          <td><span class="chip chip-red">✗ لا</span></td>
+        </tr>
+        <tr>
+          <td style="color:var(--red);"><span class="scope-name">delete_repo</span></td>
+          <td style="color:var(--text-dim);">خطير جداً — لا تحتاجه</td>
+          <td><span class="chip chip-red">✗ لا</span></td>
+        </tr>
+        <tr>
+          <td style="color:var(--red);"><span class="scope-name">admin:org</span></td>
+          <td style="color:var(--text-dim);">إدارة المنظمات — لا تحتاجه</td>
+          <td><span class="chip chip-red">✗ لا</span></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="alert alert-yellow">
+      <span class="alert-icon">⚠️</span>
+      <div>
+        <strong>Fine-grained Token (الأحدث والأكثر أماناً):</strong><br>
+        اختر Repository permissions ← Contents: <strong>Read-only</strong> ·
+        Metadata: <strong>Read-only</strong> ·
+        Traffic: <strong>Read-only</strong> (لإحصائيات الزيارات).
+        هذا النوع يقيّد الصلاحية على مستودعات محددة فقط.
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ TOKEN INPUT ══════════ -->
+  <div class="section-label">الربط بـ GitHub</div>
+  <div class="card" id="token-card">
+    <div class="card-title">أدخل GitHub Personal Access Token</div>
+    <div class="card-sub">
+      يُحفظ محلياً في متصفحك فقط — لا يُرسل لأي خادم خارجي.
+      البيانات تُمسح فور إغلاق التبويب ما لم تختر الحفظ.
+    </div>
+    <div class="input-row">
+      <input type="password" id="token-input" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+      <button class="btn btn-primary" onclick="connectToken()">
+        <span>ربط الحساب</span>
+      </button>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+      <input type="checkbox" id="persist-token" style="accent-color:var(--accent);">
+      <label for="persist-token" style="font-size:.82rem;color:var(--text-dim);cursor:pointer;">
+        حفظ التوكن في localStorage (مريح لكن أقل أماناً)
+      </label>
+    </div>
+    <div id="token-status" class="hidden"></div>
+  </div>
+
+  <!-- ══════════ MAIN TOOL ══════════ -->
+  <div id="main-tool" class="hidden">
+
+    <div class="section-label">أدوات التحليل</div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('my-repos')">مستوداتي</div>
+      <div class="tab" onclick="switchTab('analyze-url')">تحليل رابط</div>
+      <div class="tab" onclick="switchTab('download')">تحميل نظيف</div>
+    </div>
+
+    <!-- ── Tab: My Repos ── -->
+    <div id="tab-my-repos">
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div>
+            <div class="card-title" id="user-welcome">مرحباً!</div>
+            <div class="card-sub" style="margin-bottom:0">اختر مستودعاً لتحليله</div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-ghost" onclick="loadMyRepos()" id="refresh-btn">
+              🔄 تحديث
+            </button>
+            <button class="btn btn-danger" onclick="disconnectToken()">تسجيل خروج</button>
+          </div>
+        </div>
+
+        <div id="repos-loading" class="hidden" style="display:flex;align-items:center;gap:10px;padding:20px;color:var(--text-dim);">
+          <div class="spin"></div> جاري تحميل المستودعات…
+        </div>
+        <div id="repos-list" class="repo-grid"></div>
+      </div>
+
+      <!-- Analysis result panel -->
+      <div id="analysis-panel" class="card hidden">
+        <div class="analysis-header">
+          <div>
+            <div id="analysis-repo-name" class="analysis-title"></div>
+            <div id="analysis-repo-desc" class="text-dim" style="font-size:.85rem;margin-top:4px;"></div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-ghost" id="btn-traffic" onclick="loadTraffic()" style="display:none;">
+              📈 إحصائيات الزيارات
+            </button>
+            <button class="btn btn-green" onclick="gotoDownloadTab()">
+              ⬇️ تحميل نظيف
+            </button>
+          </div>
+        </div>
+
+        <div class="stats-row" id="stats-row"></div>
+
+        <div class="lang-bar-wrap" id="lang-section">
+          <div class="section-label" style="margin-bottom:10px;">توزيع لغات البرمجة</div>
+          <div class="lang-bar-track" id="lang-bar"></div>
+          <div class="lang-list" id="lang-list"></div>
+        </div>
+
+        <div id="traffic-section" class="hidden">
+          <div class="section-label" style="margin-bottom:12px;">إحصائيات الزيارات (14 يوماً)</div>
+          <div class="traffic-grid" id="traffic-grid"></div>
+        </div>
+
+        <div class="section-label" style="margin-top:24px;margin-bottom:10px;">هيكل الملفات</div>
+        <div id="progress-bar-wrap" class="hidden">
+          <div class="progress-bar"><div class="progress-fill indeterminate" id="tree-progress"></div></div>
+          <div style="font-size:.78rem;color:var(--text-dim);text-align:center;" id="tree-status">جاري تحليل الملفات…</div>
+        </div>
+        <div class="file-tree" id="file-tree"></div>
+      </div>
+    </div>
+
+    <!-- ── Tab: Analyze URL ── -->
+    <div id="tab-analyze-url" class="hidden">
+      <div class="card">
+        <div class="card-title">تحليل أي مستودع عام</div>
+        <div class="card-sub">أدخل رابط أي مستودع GitHub عام ليتم تحليله فوراً — حتى لو لم تكن صاحبه</div>
+        <div class="input-row">
+          <input type="text" id="url-input"
+            placeholder="https://github.com/owner/repo"
+            dir="ltr">
+          <button class="btn btn-primary" onclick="analyzeURL()">تحليل</button>
+        </div>
+        <div id="url-error" class="hidden" style="margin-top:10px;font-size:.82rem;color:var(--red);"></div>
+      </div>
+      <div id="url-analysis-panel" class="card hidden">
+        <div class="analysis-header">
+          <div id="url-analysis-title" class="analysis-title ltr"></div>
+          <button class="btn btn-green" onclick="gotoDownloadTabURL()">⬇️ تحميل نظيف</button>
+        </div>
+        <div class="stats-row" id="url-stats-row"></div>
+        <div class="lang-bar-wrap" id="url-lang-section">
+          <div class="section-label" style="margin-bottom:10px;">توزيع اللغات</div>
+          <div class="lang-bar-track" id="url-lang-bar"></div>
+          <div class="lang-list" id="url-lang-list"></div>
+        </div>
+        <div class="section-label" style="margin-top:24px;margin-bottom:10px;">هيكل الملفات</div>
+        <div id="url-progress-wrap" class="hidden">
+          <div class="progress-bar"><div class="progress-fill indeterminate"></div></div>
+          <div style="font-size:.78rem;color:var(--text-dim);text-align:center;">جاري تحليل الملفات…</div>
+        </div>
+        <div class="file-tree" id="url-file-tree"></div>
+      </div>
+    </div>
+
+    <!-- ── Tab: Download ── -->
+    <div id="tab-download" class="hidden">
+      <div class="card">
+        <div class="card-title">التحميل النظيف الخفيف</div>
+        <div class="card-sub">
+          يُضغط كل شيء داخل متصفحك مباشرة — لا خوادم وسيطة، لا رفع بياناتك لأي مكان.
+          الملفات المستبعدة موضّحة أدناه.
+        </div>
+
+        <div id="download-repo-info" class="alert alert-blue" style="margin-bottom:20px;">
+          <span class="alert-icon">📦</span>
+          <span id="download-repo-name">لم تختر مستودعاً بعد — اذهب لتبويب "مستوداتي" أو "تحليل رابط" أولاً</span>
+        </div>
+
+        <div class="section-label" style="margin-bottom:12px;">وضع التحميل</div>
+        <div class="download-options" id="dl-options">
+          <label class="dl-option selected" onclick="selectDLMode(this, 'clean')">
+            <input type="radio" name="dlmode" value="clean" checked>
+            <div>
+              <div class="dl-option-title">🧹 تحميل نظيف</div>
+              <div class="dl-option-desc">كود فقط — بدون node_modules، dist، .git، ملفات الصور الكبيرة، والكاش</div>
+            </div>
+          </label>
+          <label class="dl-option" onclick="selectDLMode(this, 'code-only')">
+            <input type="radio" name="dlmode" value="code-only">
+            <div>
+              <div class="dl-option-title">⚡ كود بحت</div>
+              <div class="dl-option-desc">ملفات الكود المصدري فقط (.js .ts .py .java .go إلخ) — أصغر حجماً ممكناً</div>
+            </div>
+          </label>
+        </div>
+
+        <div class="section-label" style="margin-bottom:10px;">الملفات/المجلدات المستبعدة</div>
+        <div class="exclusion-list" id="excl-list"></div>
+
+        <div class="mt-16">
+          <div class="progress-bar"><div class="progress-fill" id="dl-progress"></div></div>
+          <div id="dl-status" style="font-size:.78rem;color:var(--text-dim);text-align:center;margin-top:6px;min-height:18px;"></div>
+        </div>
+
+        <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-green w-full" id="dl-btn" onclick="startDownload()">
+            ⬇️ بدء التحميل
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main-tool -->
+
+</div><!-- /shell -->
+
+<script>
+// ══════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════
+let state = {
+  token: null,
+  user:  null,
+  currentRepo: null,   // { owner, name, full_name, private }
+  urlRepo: null,       // same shape for URL-analyzed repos
+  activeTab: 'my-repos',
+  dlMode: 'clean',
+};
+
+const CODE_EXTS = new Set([
+  'js','jsx','ts','tsx','mjs','cjs',
+  'py','rb','php','java','kt','swift',
+  'c','cpp','cc','h','hpp','cs','go',
+  'rs','zig','nim','lua','r','m','scala',
+  'html','htm','css','scss','sass','less','svelte','vue',
+  'sh','bash','zsh','ps1','bat','fish',
+  'sql','graphql','gql','proto',
+  'json','yaml','yml','toml','xml','env',
+  'md','mdx','rst','txt','csv',
+  'dockerfile','makefile','cmakelists',
+  'tf','tfvars','hcl','bicep',
+  'ex','exs','erl','hs','clj','cljs',
+  'dart','elm','purs','re','ml','mli',
+]);
+
+const BINARY_EXTS = new Set([
+  'png','jpg','jpeg','gif','svg','ico','webp','bmp','tiff','pdf',
+  'zip','tar','gz','bz2','7z','rar','xz',
+  'mp4','mov','avi','mkv','mp3','wav','ogg','flac',
+  'woff','woff2','ttf','otf','eot',
+  'exe','dll','so','dylib','bin','dat','db','sqlite',
+  'class','pyc','pyo','o','a','lib',
+  'psd','ai','sketch','fig','xd',
+]);
+
+const CLEAN_EXCLUDE_DIRS = [
+  '.git','node_modules','vendor','.cache','dist','build','.next',
+  '.nuxt','out','coverage','.nyc_output','__pycache__',
+  '.pytest_cache','.tox','venv','.venv','env',
+  '.idea','.vscode','.DS_Store','thumbs.db',
+  'logs','tmp','temp','.turbo','.parcel-cache',
+  'storybook-static','.storybook/storybook-static',
+];
+
+const LANG_COLORS = {
+  JavaScript:'#f7df1e', TypeScript:'#3178c6', Python:'#3572a5',
+  Java:'#b07219', Kotlin:'#a97bff', Swift:'#f05138',
+  Go:'#00acd7', Rust:'#dea584', C:'#555555', 'C++':'#f34b7d',
+  'C#':'#178600', PHP:'#4f5d95', Ruby:'#701516', Scala:'#c22d40',
+  HTML:'#e44b23', CSS:'#563d7c', Shell:'#89e051', Dart:'#00b4ab',
+  Vue:'#41b883', Svelte:'#ff3e00', Lua:'#000080', R:'#198ce7',
+  Elixir:'#6e4a7e', Other:'#8b949e',
+};
+
+// ══════════════════════════════════════════════
+//  UTILS
+// ══════════════════════════════════════════════
+function toast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  const icon = type==='success'?'✓':type==='error'?'✗':'ℹ';
+  el.innerHTML = `<span>${icon}</span> ${msg}`;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+function show(id) { document.getElementById(id)?.classList.remove('hidden'); }
+function hide(id) { document.getElementById(id)?.classList.add('hidden'); }
+function $(id)    { return document.getElementById(id); }
+
+function parseGitHubURL(url) {
+  const m = url.trim().match(/github\.com\/([^\/]+)\/([^\/\?#]+)/);
+  if (!m) return null;
+  return { owner: m[1], name: m[2].replace(/\.git$/, '') };
+}
+
+function getExt(filename) {
+  const parts = filename.toLowerCase().split('.');
+  if (parts.length < 2) return '';
+  const base = parts[parts.length - 1];
+  // check compound names like Dockerfile
+  if (/^dockerfile$/i.test(filename)) return 'dockerfile';
+  if (/^makefile$/i.test(filename))   return 'makefile';
+  return base;
+}
+
+function isCodeFile(filename) {
+  return CODE_EXTS.has(getExt(filename));
+}
+function isBinaryFile(filename) {
+  return BINARY_EXTS.has(getExt(filename));
+}
+
+function humanSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024**2) return (bytes/1024).toFixed(1) + ' KB';
+  return (bytes/1024**2).toFixed(1) + ' MB';
+}
+
+function setProgress(id, pct) {
+  const el = $(id);
+  if (!el) return;
+  el.classList.remove('indeterminate');
+  el.style.width = pct + '%';
+}
+
+// ══════════════════════════════════════════════
+//  GITHUB API
+// ══════════════════════════════════════════════
+async function ghFetch(path, token) {
+  const tk = token || state.token;
+  const headers = { 'Accept': 'application/vnd.github+json' };
+  if (tk) headers['Authorization'] = `Bearer ${tk}`;
+  const res = await fetch(`https://api.github.com${path}`, { headers });
+  if (!res.ok) {
+    const err = await res.json().catch(()=>({}));
+    throw new Error(err.message || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// Get tree recursively (up to 100k nodes)
+async function getTree(owner, repo, sha) {
+  return ghFetch(`/repos/${owner}/${repo}/git/trees/${sha}?recursive=1`);
+}
+
+// ══════════════════════════════════════════════
+//  TOKEN MANAGEMENT
+// ══════════════════════════════════════════════
+async function connectToken() {
+  const raw = $('token-input').value.trim();
+  if (!raw) { toast('أدخل التوكن أولاً', 'error'); return; }
+
+  const statusEl = $('token-status');
+  statusEl.className = 'token-status';
+  statusEl.innerHTML = '<div class="spin"></div> جاري التحقق…';
+  statusEl.classList.remove('hidden');
+
+  try {
+    const user = await ghFetch('/user', raw);
+    state.token = raw;
+    state.user  = user;
+
+    if ($('persist-token').checked) {
+      localStorage.setItem('gh_token', raw);
+    }
+
+    statusEl.className = 'token-status ok';
+    statusEl.innerHTML = `<span class="status-dot green"></span>
+      متصل بنجاح — مرحباً <strong>${user.name || user.login}</strong>
+      · ${user.public_repos} مستودع عام`;
+
+    show('main-tool');
+    hide('token-card');
+    $('user-welcome').textContent = `مرحباً، ${user.name || user.login}!`;
+    loadMyRepos();
+  } catch (e) {
+    statusEl.className = 'token-status err';
+    statusEl.innerHTML = `<span class="status-dot red"></span> فشل الاتصال: ${e.message}`;
+  }
+}
+
+function disconnectToken() {
+  state.token = null; state.user = null; state.currentRepo = null;
+  localStorage.removeItem('gh_token');
+  hide('main-tool');
+  show('token-card');
+  $('token-input').value = '';
+  $('token-status').className = 'hidden';
+  toast('تم قطع الاتصال', 'info');
+}
+
+// Auto-load from localStorage
+window.addEventListener('DOMContentLoaded', () => {
+  updateExclusionList();
+  const saved = localStorage.getItem('gh_token');
+  if (saved) {
+    $('token-input').value = saved;
+    $('persist-token').checked = true;
+    connectToken();
+  }
+});
+
+// ══════════════════════════════════════════════
+//  TABS
+// ══════════════════════════════════════════════
+function switchTab(name) {
+  state.activeTab = name;
+  document.querySelectorAll('.tab').forEach((t,i)=>{
+    const ids = ['my-repos','analyze-url','download'];
+    t.classList.toggle('active', ids[i]===name);
+  });
+  hide('tab-my-repos'); hide('tab-analyze-url'); hide('tab-download');
+  show('tab-' + name);
+}
+
+// ══════════════════════════════════════════════
+//  MY REPOS TAB
+// ══════════════════════════════════════════════
+async function loadMyRepos() {
+  const listEl = $('repos-list');
+  listEl.innerHTML = '';
+  hide('analysis-panel');
+  show('repos-loading');
+
+  try {
+    // Load up to 100 repos (owned by user)
+    const repos = await ghFetch(`/user/repos?per_page=100&sort=updated&affiliation=owner`);
+    hide('repos-loading');
+
+    if (!repos.length) {
+      listEl.innerHTML = '<div style="color:var(--text-dim);padding:20px;text-align:center;">لا توجد مستودعات</div>';
+      return;
+    }
+
+    repos.forEach(r => {
+      const el = document.createElement('div');
+      el.className = 'repo-item';
+      el.innerHTML = `
+        <div>
+          <div class="repo-name ltr">${r.full_name}</div>
+          <div class="repo-meta" style="margin-top:4px;">
+            ${r.language?`<span><span class="lang-dot" style="background:${LANG_COLORS[r.language]||'#8b949e'}"></span>${r.language}</span>`:''}
+            <span>⭐ ${r.stargazers_count}</span>
+            <span>🍴 ${r.forks_count}</span>
+            <span>${new Date(r.updated_at).toLocaleDateString('ar-SA')}</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          ${r.private?'<span class="chip chip-yellow">خاص</span>':'<span class="chip chip-blue">عام</span>'}
+        </div>`;
+      el.onclick = () => selectRepo(r, el);
+      listEl.appendChild(el);
+    });
+  } catch(e) {
+    hide('repos-loading');
+    listEl.innerHTML = `<div class="text-red" style="padding:20px;">خطأ: ${e.message}</div>`;
+  }
+}
+
+async function selectRepo(repo, el) {
+  document.querySelectorAll('.repo-item').forEach(x=>x.classList.remove('selected'));
+  el.classList.add('selected');
+  state.currentRepo = { owner: repo.owner.login, name: repo.name, full_name: repo.full_name, private: repo.private };
+  await analyzeRepo(repo.owner.login, repo.name, repo, 'main');
+}
+
+async function analyzeRepo(owner, name, meta, defaultBranch) {
+  show('analysis-panel');
+  $('analysis-repo-name').innerHTML = `
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="color:var(--text-dim);">
+      <path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482
+        0-.237-.008-.866-.013-1.7-2.782.604-3.369-1.34-3.369-1.34-.454-1.157-1.11-1.464-1.11-1.464
+        -.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088
+        2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943
+        0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647
+        0 0 .84-.269 2.75 1.025A9.578 9.578 0 0 1 12 6.836a9.59 9.59 0 0 1 2.504.337
+        c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.202 2.394.1 2.647
+        .64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935
+        .359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743
+        0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12
+        22 6.477 17.523 2 12 2Z"/>
+    </svg>
+    ${owner}/<strong>${name}</strong>`;
+
+  $('analysis-repo-desc').textContent = meta?.description || '';
+  $('stats-row').innerHTML = '<div style="display:flex;align-items:center;gap:10px;color:var(--text-dim);"><div class="spin"></div> جاري التحليل…</div>';
+  $('file-tree').innerHTML = '';
+  hide('traffic-section');
+
+  // Show traffic button only for owner
+  if (state.user && state.user.login === owner) {
+    $('btn-traffic').style.display = '';
+    $('btn-traffic').dataset.owner = owner;
+    $('btn-traffic').dataset.repo = name;
+  } else {
+    $('btn-traffic').style.display = 'none';
+  }
+
+  try {
+    // Repo meta if not passed
+    if (!meta || !meta.default_branch) {
+      meta = await ghFetch(`/repos/${owner}/${name}`);
+    }
+    const branch = meta.default_branch || defaultBranch || 'main';
+
+    // Languages
+    const langs = await ghFetch(`/repos/${owner}/${name}/languages`);
+    renderLangs(langs, 'lang-bar', 'lang-list');
+
+    // Tree
+    show('progress-bar-wrap');
+    $('tree-status').textContent = 'جاري جلب هيكل الملفات…';
+    const treeData = await getTree(owner, name, branch);
+    hide('progress-bar-wrap');
+
+    const files = treeData.tree || [];
+    renderStats(meta, files, 'stats-row');
+    renderTree(files, 'file-tree');
+  } catch(e) {
+    $('stats-row').innerHTML = `<div class="text-red">خطأ: ${e.message}</div>`;
+    hide('progress-bar-wrap');
+  }
+}
+
+// ══════════════════════════════════════════════
+//  URL ANALYZER
+// ══════════════════════════════════════════════
+async function analyzeURL() {
+  const raw = $('url-input').value.trim();
+  hide('url-error'); hide('url-analysis-panel');
+
+  const parsed = parseGitHubURL(raw);
+  if (!parsed) {
+    $('url-error').textContent = 'رابط غير صحيح — يجب أن يكون من نوع: https://github.com/owner/repo';
+    show('url-error'); return;
+  }
+
+  const { owner, name } = parsed;
+  show('url-analysis-panel');
+  state.urlRepo = { owner, name, full_name: `${owner}/${name}` };
+
+  $('url-analysis-title').innerHTML = `
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="color:var(--text-dim);">
+      <path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482
+        0-.237-.008-.866-.013-1.7-2.782.604-3.369-1.34-3.369-1.34-.454-1.157-1.11-1.464-1.11-1.464
+        -.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088
+        2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943
+        0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647
+        0 0 .84-.269 2.75 1.025A9.578 9.578 0 0 1 12 6.836a9.59 9.59 0 0 1 2.504.337
+        c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.202 2.394.1 2.647
+        .64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935
+        .359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743
+        0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12
+        22 6.477 17.523 2 12 2Z"/>
+    </svg>
+    ${owner}/<strong>${name}</strong>`;
+
+  $('url-stats-row').innerHTML = '<div style="display:flex;align-items:center;gap:10px;color:var(--text-dim);padding:12px 0;"><div class="spin"></div> جاري التحليل…</div>';
+  $('url-file-tree').innerHTML = '';
+
+  try {
+    const meta  = await ghFetch(`/repos/${owner}/${name}`);
+    const langs = await ghFetch(`/repos/${owner}/${name}/languages`);
+    renderLangs(langs, 'url-lang-bar', 'url-lang-list');
+
+    show('url-progress-wrap');
+    const treeData = await getTree(owner, name, meta.default_branch || 'main');
+    hide('url-progress-wrap');
+
+    const files = treeData.tree || [];
+    renderStats(meta, files, 'url-stats-row');
+    renderTree(files, 'url-file-tree');
+    toast('تم تحليل المستودع بنجاح', 'success');
+  } catch(e) {
+    $('url-stats-row').innerHTML = `<div class="text-red">خطأ: ${e.message}</div>`;
+    hide('url-progress-wrap');
+    toast(e.message, 'error');
+  }
+}
+
+// ══════════════════════════════════════════════
+//  RENDER HELPERS
+// ══════════════════════════════════════════════
+function renderStats(meta, files, targetId) {
+  const allFiles = files.filter(f => f.type==='blob');
+  const codeFiles = allFiles.filter(f => isCodeFile(f.path));
+  const binaryFiles = allFiles.filter(f => isBinaryFile(f.path));
+  const otherFiles = allFiles.filter(f => !isCodeFile(f.path) && !isBinaryFile(f.path));
+  const codePct = allFiles.length ? Math.round(codeFiles.length/allFiles.length*100) : 0;
+
+  $(targetId).innerHTML = `
+    <div class="stat-box">
+      <div class="stat-num">${allFiles.length.toLocaleString()}</div>
+      <div class="stat-label">إجمالي الملفات</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-num text-green">${codeFiles.length.toLocaleString()}</div>
+      <div class="stat-label">ملفات كود (${codePct}٪)</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-num" style="color:var(--yellow)">${binaryFiles.length.toLocaleString()}</div>
+      <div class="stat-label">ملفات ثنائية / وسائط</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-num text-accent">${(meta.stargazers_count||0).toLocaleString()}</div>
+      <div class="stat-label">⭐ النجوم</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-num" style="color:var(--purple)">${(meta.forks_count||0).toLocaleString()}</div>
+      <div class="stat-label">🍴 الفروع</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-num">${meta.open_issues_count||0}</div>
+      <div class="stat-label">🐛 Issues مفتوحة</div>
+    </div>`;
+}
+
+function renderLangs(langs, barId, listId) {
+  const total = Object.values(langs).reduce((a,b)=>a+b,0)||1;
+  const sorted = Object.entries(langs).sort((a,b)=>b[1]-a[1]);
+
+  $(barId).innerHTML = sorted.map(([lang, bytes]) => {
+    const pct = (bytes/total*100).toFixed(1);
+    const color = LANG_COLORS[lang] || LANG_COLORS.Other;
+    return `<div class="lang-segment" style="width:${pct}%;background:${color};"></div>`;
+  }).join('');
+
+  $(listId).innerHTML = sorted.map(([lang, bytes]) => {
+    const pct = (bytes/total*100).toFixed(1);
+    const color = LANG_COLORS[lang] || LANG_COLORS.Other;
+    return `<span class="lang-entry">
+      <span class="lang-dot" style="background:${color};width:10px;height:10px;border-radius:50%;display:inline-block;"></span>
+      ${lang} <span style="color:var(--text-prime)">${pct}٪</span>
+    </span>`;
+  }).join('');
+}
+
+function renderTree(files, targetId) {
+  const el = $(targetId);
+  const shown = files.slice(0, 300); // cap at 300 for perf
+  el.innerHTML = shown.map(f => {
+    const isDir  = f.type === 'tree';
+    const isCode = !isDir && isCodeFile(f.path);
+    const isBin  = !isDir && isBinaryFile(f.path);
+    const cls    = isDir ? 'dir' : isCode ? 'code' : isBin ? 'asset' : '';
+    const icon   = isDir ? '📁' : isCode ? '📄' : isBin ? '🖼' : '📝';
+    const depth  = f.path.split('/').length - 1;
+    return `<div class="tree-row ${cls}" style="padding-right:${14+depth*14}px;">
+      <span>${icon}</span>
+      <span>${f.path.split('/').pop()}</span>
+      ${f.size ? `<span style="margin-right:auto;color:var(--text-ghost);font-size:.72rem;">${humanSize(f.size)}</span>` : ''}
+    </div>`;
+  }).join('') +
+  (files.length > 300 ? `<div class="tree-row text-dim">… و ${files.length-300} عنصر آخر</div>` : '');
+}
+
+// ══════════════════════════════════════════════
+//  TRAFFIC
+// ══════════════════════════════════════════════
+async function loadTraffic() {
+  const owner = $('btn-traffic').dataset.owner;
+  const repo  = $('btn-traffic').dataset.repo;
+  show('traffic-section');
+  $('traffic-grid').innerHTML = '<div class="spin"></div>';
+
+  try {
+    const [views, clones] = await Promise.all([
+      ghFetch(`/repos/${owner}/${repo}/traffic/views`),
+      ghFetch(`/repos/${owner}/${repo}/traffic/clones`),
+    ]);
+    $('traffic-grid').innerHTML = `
+      <div class="traffic-box">
+        <div class="traffic-big text-accent">${views.count?.toLocaleString()||0}</div>
+        <div class="traffic-sub">مشاهدات إجمالية (14 يوماً)</div>
+        <div style="margin-top:6px;font-size:.82rem;color:var(--text-dim);">
+          زوار فريدون: <strong style="color:var(--text-prime)">${views.uniques?.toLocaleString()||0}</strong>
+        </div>
+      </div>
+      <div class="traffic-box">
+        <div class="traffic-big text-green">${clones.count?.toLocaleString()||0}</div>
+        <div class="traffic-sub">استنساخات (Clones) إجمالية</div>
+        <div style="margin-top:6px;font-size:.82rem;color:var(--text-dim);">
+          فريديون: <strong style="color:var(--text-prime)">${clones.uniques?.toLocaleString()||0}</strong>
+        </div>
+      </div>`;
+  } catch(e) {
+    $('traffic-grid').innerHTML = `<div class="text-red">لا يمكن جلب البيانات: ${e.message}</div>`;
+  }
+}
+
+// ══════════════════════════════════════════════
+//  DOWNLOAD
+// ══════════════════════════════════════════════
+function gotoDownloadTab() {
+  if (!state.currentRepo) return;
+  setDownloadTarget(state.currentRepo);
+  switchTab('download');
+}
+function gotoDownloadTabURL() {
+  if (!state.urlRepo) return;
+  setDownloadTarget(state.urlRepo);
+  switchTab('download');
+}
+function setDownloadTarget(repo) {
+  $('download-repo-name').textContent = `المستودع المختار: ${repo.full_name}`;
+}
+
+function selectDLMode(el, mode) {
+  document.querySelectorAll('.dl-option').forEach(x=>x.classList.remove('selected'));
+  el.classList.add('selected');
+  state.dlMode = mode;
+  updateExclusionList();
+}
+
+const CLEAN_RULES = [
+  '.git','node_modules','vendor','.cache','dist','build',
+  '.next','.nuxt','out','coverage','__pycache__',
+  'venv','.venv','.idea','.vscode',
+];
+const CODE_ONLY_RULES = [
+  ...CLEAN_RULES,
+  '*.png','*.jpg','*.jpeg','*.gif','*.svg','*.ico','*.webp',
+  '*.pdf','*.zip','*.tar.gz','*.woff','*.woff2','*.ttf',
+  '*.mp4','*.mp3','*.mov','*.avi',
+  '*.exe','*.dll','*.bin','*.db',
+];
+
+function updateExclusionList() {
+  const rules = state.dlMode === 'code-only' ? CODE_ONLY_RULES : CLEAN_RULES;
+  const el = $('excl-list');
+  if (!el) return;
+  el.innerHTML = rules.map(r => `<span class="excl-tag">${r}</span>`).join('');
+}
+
+async function startDownload() {
+  const repo = state.currentRepo || state.urlRepo;
+  if (!repo) { toast('اختر مستودعاً أولاً', 'error'); return; }
+
+  const btn = $('dl-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ جاري التجهيز…';
+  $('dl-status').textContent = 'جاري جلب قائمة الملفات…';
+  setProgress('dl-progress', 5);
+
+  try {
+    const meta = await ghFetch(`/repos/${repo.owner}/${repo.name}`);
+    const branch = meta.default_branch || 'main';
+
+    $('dl-status').textContent = 'جاري جلب هيكل المستودع…';
+    setProgress('dl-progress', 15);
+    const treeData = await getTree(repo.owner, repo.name, branch);
+    const allFiles = (treeData.tree||[]).filter(f=>f.type==='blob');
+
+    // Filter
+    const filtered = allFiles.filter(f => {
+      const parts = f.path.split('/');
+      // exclude blocked dirs
+      for (const dir of CLEAN_EXCLUDE_DIRS) {
+        if (parts.includes(dir)) return false;
+      }
+      if (state.dlMode === 'code-only') {
+        return isCodeFile(f.path) && !isBinaryFile(f.path);
+      }
+      return !isBinaryFile(f.path);
+    });
+
+    if (!filtered.length) { toast('لا توجد ملفات بعد الفلترة', 'error'); btn.disabled=false; btn.textContent='⬇️ بدء التحميل'; return; }
+
+    $('dl-status').textContent = `جاري تحميل ${filtered.length} ملف…`;
+
+    const zip = new JSZip();
+    let done = 0;
+
+    // Fetch in batches of 10
+    const batchSize = 10;
+    for (let i = 0; i < filtered.length; i += batchSize) {
+      const batch = filtered.slice(i, i + batchSize);
+      await Promise.all(batch.map(async f => {
+        try {
+          const headers = { 'Accept': 'application/vnd.github.raw+json' };
+          if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+          const res = await fetch(
+            `https://api.github.com/repos/${repo.owner}/${repo.name}/contents/${encodeURIComponent(f.path)}`,
+            { headers }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            const content = atob(data.content.replace(/\n/g,''));
+            zip.file(f.path, content);
+          }
+        } catch { /* skip failed files */ }
+        done++;
+        const pct = 20 + Math.round(done/filtered.length*70);
+        setProgress('dl-progress', pct);
+        $('dl-status').textContent = `تم: ${done} / ${filtered.length} ملف`;
+      }));
+    }
+
+    $('dl-status').textContent = 'جاري ضغط الملفات…';
+    setProgress('dl-progress', 92);
+
+    const blob = await zip.generateAsync({ type:'blob', compression:'DEFLATE', compressionOptions:{ level:6 } });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `${repo.name}-clean.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    setProgress('dl-progress', 100);
+    $('dl-status').textContent = `✅ تم التحميل — ${filtered.length} ملف، ${humanSize(blob.size)}`;
+    toast(`تم التحميل: ${humanSize(blob.size)}`, 'success');
+
+  } catch(e) {
+    toast('فشل التحميل: ' + e.message, 'error');
+    $('dl-status').textContent = 'خطأ: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '⬇️ بدء التحميل';
+  }
+}
+</script>
+</body>
+</html>
